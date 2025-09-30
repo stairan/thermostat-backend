@@ -1,0 +1,607 @@
+openapi: 3.0.3
+info:
+  title: Thermostat Backend API
+  description: API for managing thermostat status data with SQLite database
+  version: 1.0.0
+  contact:
+    name: Thermostat Backend API
+  license:
+    name: MIT
+
+servers:
+  - url: http://localhost:8000
+    description: Development server
+
+paths:
+  /:
+    get:
+      summary: Get API information
+      description: Returns basic information about the API
+      operationId: getApiInfo
+      responses:
+        '200':
+          description: API information
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Thermostat Backend API"
+                  version:
+                    type: string
+                    example: "1.0.0"
+                  documentation:
+                    type: string
+                    example: "/docs"
+
+  /health:
+    get:
+      summary: Health check
+      description: Check if the API is running
+      operationId: healthCheck
+      responses:
+        '200':
+          description: API is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "healthy"
+
+  /api/v1/statuses/day/{date}:
+    get:
+      summary: Get statuses for a specific day
+      description: Retrieve all thermostat status records for a given date
+      operationId: getStatusesByDay
+      parameters:
+        - name: date
+          in: path
+          required: true
+          description: Date in YYYY-MM-DD format
+          schema:
+            type: string
+            pattern: '^\d{4}-\d{2}-\d{2}$'
+            example: "2024-01-01"
+      responses:
+        '200':
+          description: List of status records for the specified day
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/StatusResponse'
+        '404':
+          description: No data found for the specified date
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/statuses/period:
+    get:
+      summary: Get statuses for a time period
+      description: Retrieve thermostat status records for a specified time period
+      operationId: getStatusesByPeriod
+      parameters:
+        - name: start_date
+          in: query
+          required: true
+          description: Start date (YYYY-MM-DD HH:MM:SS.ffffff or YYYY-MM-DD)
+          schema:
+            type: string
+            example: "2024-01-01"
+        - name: end_date
+          in: query
+          required: true
+          description: End date (YYYY-MM-DD HH:MM:SS.ffffff or YYYY-MM-DD)
+          schema:
+            type: string
+            example: "2024-01-02"
+      responses:
+        '200':
+          description: List of status records for the specified period
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/StatusResponse'
+        '404':
+          description: No data found for the specified period
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/statuses/all:
+    get:
+      summary: Get all statuses (paginated)
+      description: Retrieve all thermostat status records with pagination
+      operationId: getAllStatuses
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          description: Maximum number of records to return
+          schema:
+            type: integer
+            default: 100
+            minimum: 1
+            maximum: 1000
+        - name: offset
+          in: query
+          required: false
+          description: Number of records to skip
+          schema:
+            type: integer
+            default: 0
+            minimum: 0
+      responses:
+        '200':
+          description: List of status records
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/StatusResponse'
+
+  /api/v1/statuses/stats:
+    get:
+      summary: Get statistics
+      description: Get statistical summary of thermostat data
+      operationId: getStatistics
+      parameters:
+        - name: start_date
+          in: query
+          required: false
+          description: Start date for statistics calculation
+          schema:
+            type: string
+            example: "2024-01-01"
+        - name: end_date
+          in: query
+          required: false
+          description: End date for statistics calculation
+          schema:
+            type: string
+            example: "2024-01-31"
+      responses:
+        '200':
+          description: Statistical summary
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatsSummary'
+
+  /api/v1/statuses:
+    post:
+      summary: Create a new status record
+      description: Add a new thermostat status record to the database
+      operationId: createStatus
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StatusCreate'
+      responses:
+        '200':
+          description: Status record created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatusResponse'
+        '400':
+          description: Error creating status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/statuses/heating-efficiency:
+    get:
+      summary: Get heating efficiency data
+      description: Calculate heating efficiency based on temperature difference and heating time
+      operationId: getHeatingEfficiency
+      parameters:
+        - name: start_date
+          in: query
+          required: false
+          description: Start date for efficiency calculation
+          schema:
+            type: string
+            example: "2024-01-01"
+        - name: end_date
+          in: query
+          required: false
+          description: End date for efficiency calculation
+          schema:
+            type: string
+            example: "2024-01-31"
+      responses:
+        '200':
+          description: List of heating efficiency data
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/HeatingEfficiency'
+
+  /api/v1/statuses/hourly/{date}:
+    get:
+      summary: Get hourly temperature data for a specific day
+      description: Retrieve hourly aggregated temperature and heating data for a given date
+      operationId: getHourlyDataByDate
+      parameters:
+        - name: date
+          in: path
+          required: true
+          description: Date in YYYY-MM-DD format
+          schema:
+            type: string
+            pattern: '^\d{4}-\d{2}-\d{2}$'
+            example: "2024-01-01"
+      responses:
+        '200':
+          description: Array of hourly data for the specified day (24 hours, 0-23)
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/HourlyData'
+        '404':
+          description: No data found for the specified date
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/statuses/daily/{year}/{month}:
+    get:
+      summary: Get daily temperature data for a specific month
+      description: Retrieve daily aggregated temperature and heating data for a given month
+      operationId: getDailyDataByMonth
+      parameters:
+        - name: year
+          in: path
+          required: true
+          description: Year (4-digit)
+          schema:
+            type: integer
+            minimum: 1900
+            maximum: 2100
+            example: 2024
+        - name: month
+          in: path
+          required: true
+          description: Month (1-12)
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 12
+            example: 1
+      responses:
+        '200':
+          description: Array of daily data for the specified month (1-31 days depending on month)
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/DailyData'
+        '400':
+          description: Invalid month parameter
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: No data found for the specified month
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/statuses/monthly/{year}:
+    get:
+      summary: Get monthly temperature data for a specific year
+      description: Retrieve monthly aggregated temperature and heating data for a given year
+      operationId: getMonthlyDataByYear
+      parameters:
+        - name: year
+          in: path
+          required: true
+          description: Year (4-digit)
+          schema:
+            type: integer
+            minimum: 1900
+            maximum: 2100
+            example: 2024
+      responses:
+        '200':
+          description: Array of monthly data for the specified year (12 months, 1-12)
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/MonthlyData'
+        '404':
+          description: No data found for the specified year
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+components:
+  schemas:
+    StatusResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+          description: Unique identifier
+          example: 1
+        start_time:
+          type: string
+          description: Start time in format YYYY-MM-DD HH:MM:SS.ffffff
+          example: "2024-01-01 08:00:00.000000"
+        end_time:
+          type: string
+          description: End time in format YYYY-MM-DD HH:MM:SS.ffffff
+          example: "2024-01-01 09:00:00.000000"
+        minutes_heating:
+          type: integer
+          description: Number of minutes heating was on
+          minimum: 0
+          example: 45
+        average_indoor_temp:
+          type: number
+          format: float
+          description: Average indoor temperature during the period
+          example: 21.5
+        average_outdoor_temp:
+          type: number
+          format: float
+          description: Average outdoor temperature during the period
+          example: 5.2
+      required:
+        - id
+        - start_time
+        - end_time
+        - minutes_heating
+        - average_indoor_temp
+        - average_outdoor_temp
+
+    StatusCreate:
+      type: object
+      properties:
+        start_time:
+          type: string
+          description: Start time in format YYYY-MM-DD HH:MM:SS.ffffff
+          example: "2024-01-01 08:00:00.000000"
+        end_time:
+          type: string
+          description: End time in format YYYY-MM-DD HH:MM:SS.ffffff
+          example: "2024-01-01 09:00:00.000000"
+        minutes_heating:
+          type: integer
+          description: Number of minutes heating was on
+          minimum: 0
+          example: 45
+        average_indoor_temp:
+          type: number
+          format: float
+          description: Average indoor temperature during the period
+          example: 21.5
+        average_outdoor_temp:
+          type: number
+          format: float
+          description: Average outdoor temperature during the period
+          example: 5.2
+      required:
+        - start_time
+        - end_time
+        - minutes_heating
+        - average_indoor_temp
+        - average_outdoor_temp
+
+    StatsSummary:
+      type: object
+      properties:
+        total_records:
+          type: integer
+          description: Total number of status records
+          example: 345
+        total_heating_minutes:
+          type: integer
+          description: Total minutes of heating across all records
+          example: 11392
+        avg_indoor_temp:
+          type: number
+          format: float
+          description: Average indoor temperature across all records
+          example: 21.13
+        avg_outdoor_temp:
+          type: number
+          format: float
+          description: Average outdoor temperature across all records
+          example: 7.75
+        min_indoor_temp:
+          type: number
+          format: float
+          description: Minimum indoor temperature
+          example: 18.0
+        max_indoor_temp:
+          type: number
+          format: float
+          description: Maximum indoor temperature
+          example: 24.0
+        min_outdoor_temp:
+          type: number
+          format: float
+          description: Minimum outdoor temperature
+          example: -9.9
+        max_outdoor_temp:
+          type: number
+          format: float
+          description: Maximum outdoor temperature
+          example: 25.0
+      required:
+        - total_records
+        - total_heating_minutes
+        - avg_indoor_temp
+        - avg_outdoor_temp
+        - min_indoor_temp
+        - max_indoor_temp
+        - min_outdoor_temp
+        - max_outdoor_temp
+
+    HourlyData:
+      type: object
+      properties:
+        hour:
+          type: integer
+          description: Hour of the day (0-23)
+          minimum: 0
+          maximum: 23
+          example: 14
+        minutes_heating:
+          type: integer
+          description: Total minutes heating was on during this hour
+          minimum: 0
+          example: 45
+        avg_indoor_temp:
+          type: number
+          format: float
+          description: Average indoor temperature during this hour
+          example: 21.5
+        avg_outdoor_temp:
+          type: number
+          format: float
+          description: Average outdoor temperature during this hour
+          example: 5.2
+      required:
+        - hour
+        - minutes_heating
+        - avg_indoor_temp
+        - avg_outdoor_temp
+
+    DailyData:
+      type: object
+      properties:
+        day:
+          type: integer
+          description: Day of the month (1-31)
+          minimum: 1
+          maximum: 31
+          example: 15
+        minutes_heating:
+          type: integer
+          description: Total minutes heating was on during this day
+          minimum: 0
+          example: 720
+        avg_indoor_temp:
+          type: number
+          format: float
+          description: Average indoor temperature during this day
+          example: 21.3
+        avg_outdoor_temp:
+          type: number
+          format: float
+          description: Average outdoor temperature during this day
+          example: 4.8
+      required:
+        - day
+        - minutes_heating
+        - avg_indoor_temp
+        - avg_outdoor_temp
+
+    MonthlyData:
+      type: object
+      properties:
+        month:
+          type: integer
+          description: Month of the year (1-12)
+          minimum: 1
+          maximum: 12
+          example: 3
+        minutes_heating:
+          type: integer
+          description: Total minutes heating was on during this month
+          minimum: 0
+          example: 15430
+        avg_indoor_temp:
+          type: number
+          format: float
+          description: Average indoor temperature during this month
+          example: 20.8
+        avg_outdoor_temp:
+          type: number
+          format: float
+          description: Average outdoor temperature during this month
+          example: 8.2
+      required:
+        - month
+        - minutes_heating
+        - avg_indoor_temp
+        - avg_outdoor_temp
+
+    HeatingEfficiency:
+      type: object
+      properties:
+        id:
+          type: integer
+          description: Status record ID
+          example: 1
+        start_time:
+          type: string
+          description: Start time of the period
+          example: "2024-01-01 08:00:00.000000"
+        temperature_difference:
+          type: number
+          format: float
+          description: Difference between indoor and outdoor temperature
+          example: 11.4
+        heating_minutes:
+          type: integer
+          description: Minutes heating was on
+          example: 34
+        heating_efficiency:
+          type: number
+          format: float
+          description: Heating efficiency (minutes per degree difference)
+          example: 2.98
+      required:
+        - id
+        - start_time
+        - temperature_difference
+        - heating_minutes
+        - heating_efficiency
+
+    ErrorResponse:
+      type: object
+      properties:
+        detail:
+          type: string
+          description: Error message
+          example: "No data found for the specified date"
+      required:
+        - detail
+
+tags:
+  - name: Information
+    description: API information and health checks
+  - name: Status Data
+    description: CRUD operations for thermostat status data
+  - name: Analytics
+    description: Statistical analysis and efficiency calculations
