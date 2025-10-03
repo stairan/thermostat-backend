@@ -12,4 +12,5 @@ dependencies = [
     "httpx>=0.25.0",
     "asyncio-mqtt>=0.11.0",
     "python-dotenv>=1.0.0",
+    "alembic>=1.16.5",
 ]

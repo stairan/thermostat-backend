@@ -4,7 +4,10 @@ from sqlalchemy.pool import StaticPool
 from .models import Base
 import os
 
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./data.db")
+def get_database_url():
+    return os.getenv("DATABASE_URL", "sqlite:///./data.db")
+
+DATABASE_URL = get_database_url()
 
 engine = create_engine(
     DATABASE_URL,
