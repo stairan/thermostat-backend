@@ -64,19 +64,32 @@ class DailyPowerUsage(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     date = Column(Date, nullable=False, unique=True, index=True)
-    entity_id = Column(String, nullable=False, default="sensor.p1_meter_total_energy_import")
-    start_value = Column(Float, nullable=False)
-    end_value = Column(Float, nullable=False)
-    daily_usage = Column(Float, nullable=False)  # Difference between end and start
+
+    # Import values
+    import_start_value = Column(Float, nullable=False)
+    import_end_value = Column(Float, nullable=False)
+    daily_import = Column(Float, nullable=False)
+
+    # Export values
+    export_start_value = Column(Float, nullable=False, default=0.0)
+    export_end_value = Column(Float, nullable=False, default=0.0)
+    daily_export = Column(Float, nullable=False, default=0.0)
+
+    # Solar yield
+    inverter_daily_yield = Column(Float, nullable=False, default=0.0)
+
+    # Total usage: (inverter_daily_yield - daily_export) + daily_import
+    daily_usage = Column(Float, nullable=False)
+
     timestamp = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
 
     def to_dict(self):
         return {
             "id": self.id,
             "date": self.date.isoformat() if self.date else None,
-            "entity_id": self.entity_id,
-            "start_value": self.start_value,
-            "end_value": self.end_value,
+            "daily_import": self.daily_import,
+            "daily_export": self.daily_export,
+            "inverter_daily_yield": self.inverter_daily_yield,
             "daily_usage": self.daily_usage,
             "timestamp": self.timestamp.isoformat() if self.timestamp else None
         }

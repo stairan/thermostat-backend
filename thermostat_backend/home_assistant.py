@@ -182,15 +182,15 @@ class HomeAssistantService:
         finally:
             db.close()
 
-    async def fetch_daily_power_usage(self) -> Optional[float]:
-        """Fetch daily power usage from Home Assistant API"""
+    async def fetch_sensor_history(self, entity_id: str) -> Optional[tuple]:
+        """Fetch sensor history for today and return (start_value, end_value, daily_difference)"""
         headers = {}
         if self.access_token:
             headers["Authorization"] = f"Bearer {self.access_token}"
 
         today = date.today().strftime("%Y-%m-%d")
         params = {
-            "filter_entity_id": "sensor.p1_meter_total_energy_import",
+            "filter_entity_id": entity_id,
             "minimal_response": "",
             "significant_changes_only": ""
         }
@@ -206,40 +206,108 @@ class HomeAssistantService:
                 response.raise_for_status()
                 data = response.json()
 
-                # Data is an array of arrays, we need the first (and likely only) inner array
                 if not data or not isinstance(data, list) or len(data) == 0:
-                    logger.warning("No history data received for power usage")
+                    logger.warning(f"No history data received for {entity_id}")
                     return None
 
-                history_entries = data[0]  # Get the first array
+                history_entries = data[0]
                 if not history_entries or len(history_entries) < 2:
-                    logger.warning("Not enough history entries for power usage calculation")
+                    logger.warning(f"Not enough history entries for {entity_id}")
                     return None
 
-                # Get first and last entries
                 first_entry = history_entries[0]
                 last_entry = history_entries[-1]
 
                 try:
                     start_value = float(first_entry["state"])
                     end_value = float(last_entry["state"])
-                    daily_usage = end_value - start_value
+                    daily_difference = end_value - start_value
 
-                    logger.info(f"Power usage calculation: {end_value} - {start_value} = {daily_usage}")
-                    return start_value, end_value, daily_usage
+                    logger.info(f"{entity_id}: {end_value} - {start_value} = {daily_difference}")
+                    return start_value, end_value, daily_difference
 
                 except (ValueError, KeyError) as e:
-                    logger.error(f"Error parsing power usage values: {e}")
+                    logger.error(f"Error parsing values for {entity_id}: {e}")
                     return None
 
             except httpx.HTTPError as e:
-                logger.error(f"HTTP error fetching daily power usage: {e}")
+                logger.error(f"HTTP error fetching {entity_id}: {e}")
                 return None
             except Exception as e:
-                logger.error(f"Unexpected error fetching daily power usage: {e}")
+                logger.error(f"Unexpected error fetching {entity_id}: {e}")
                 return None
 
-    def save_daily_power_usage(self, start_value: float, end_value: float, daily_usage: float) -> None:
+    async def fetch_inverter_daily_yield(self) -> Optional[float]:
+        """Fetch current inverter daily yield value"""
+        headers = {}
+        if self.access_token:
+            headers["Authorization"] = f"Bearer {self.access_token}"
+
+        async with httpx.AsyncClient() as client:
+            try:
+                response = await client.get(
+                    f"{self.base_url}/api/states/sensor.inverter_daily_yield",
+                    headers=headers,
+                    timeout=30.0
+                )
+                response.raise_for_status()
+                data = response.json()
+
+                try:
+                    yield_value = float(data["state"])
+                    logger.info(f"Inverter daily yield: {yield_value}")
+                    return yield_value
+                except (ValueError, KeyError) as e:
+                    logger.error(f"Error parsing inverter daily yield: {e}")
+                    return None
+
+            except httpx.HTTPError as e:
+                logger.error(f"HTTP error fetching inverter daily yield: {e}")
+                return None
+            except Exception as e:
+                logger.error(f"Unexpected error fetching inverter daily yield: {e}")
+                return None
+
+    async def fetch_daily_power_usage(self) -> Optional[dict]:
+        """Fetch all power-related sensors and calculate total usage"""
+        # Fetch import data
+        import_data = await self.fetch_sensor_history("sensor.p1_meter_total_energy_import")
+        if not import_data:
+            logger.error("Failed to fetch import data")
+            return None
+
+        # Fetch export data
+        export_data = await self.fetch_sensor_history("sensor.p1_meter_total_energy_export")
+        if not export_data:
+            logger.warning("Failed to fetch export data, using 0")
+            export_data = (0.0, 0.0, 0.0)
+
+        # Fetch inverter daily yield (this is already a daily cumulative value)
+        inverter_yield = await self.fetch_inverter_daily_yield()
+        if inverter_yield is None:
+            logger.warning("Failed to fetch inverter daily yield, using 0")
+            inverter_yield = 0.0
+
+        import_start, import_end, daily_import = import_data
+        export_start, export_end, daily_export = export_data
+
+        # Calculate total usage: (inverter_daily_yield - daily_export) + daily_import
+        daily_usage = (inverter_yield - daily_export) + daily_import
+
+        logger.info(f"Total daily usage calculation: ({inverter_yield} - {daily_export}) + {daily_import} = {daily_usage}")
+
+        return {
+            "import_start_value": import_start,
+            "import_end_value": import_end,
+            "daily_import": daily_import,
+            "export_start_value": export_start,
+            "export_end_value": export_end,
+            "daily_export": daily_export,
+            "inverter_daily_yield": inverter_yield,
+            "daily_usage": daily_usage
+        }
+
+    def save_daily_power_usage(self, power_data: dict) -> None:
         """Save daily power usage to database"""
         db = SessionLocal()
         try:
@@ -250,22 +318,31 @@ class HomeAssistantService:
             existing = db.query(DailyPowerUsage).filter(DailyPowerUsage.date == today).first()
 
             if existing:
-                existing.start_value = start_value
-                existing.end_value = end_value
-                existing.daily_usage = daily_usage
+                existing.import_start_value = power_data["import_start_value"]
+                existing.import_end_value = power_data["import_end_value"]
+                existing.daily_import = power_data["daily_import"]
+                existing.export_start_value = power_data["export_start_value"]
+                existing.export_end_value = power_data["export_end_value"]
+                existing.daily_export = power_data["daily_export"]
+                existing.inverter_daily_yield = power_data["inverter_daily_yield"]
+                existing.daily_usage = power_data["daily_usage"]
                 existing.timestamp = timestamp
-                logger.info(f"Updated daily power usage for {today}: {daily_usage} kWh")
+                logger.info(f"Updated daily power usage for {today}: {power_data['daily_usage']} kWh")
             else:
                 power_usage = DailyPowerUsage(
                     date=today,
-                    entity_id="sensor.p1_meter_total_energy_import",
-                    start_value=start_value,
-                    end_value=end_value,
-                    daily_usage=daily_usage,
+                    import_start_value=power_data["import_start_value"],
+                    import_end_value=power_data["import_end_value"],
+                    daily_import=power_data["daily_import"],
+                    export_start_value=power_data["export_start_value"],
+                    export_end_value=power_data["export_end_value"],
+                    daily_export=power_data["daily_export"],
+                    inverter_daily_yield=power_data["inverter_daily_yield"],
+                    daily_usage=power_data["daily_usage"],
                     timestamp=timestamp
                 )
                 db.add(power_usage)
-                logger.info(f"Saved new daily power usage for {today}: {daily_usage} kWh")
+                logger.info(f"Saved new daily power usage for {today}: {power_data['daily_usage']} kWh")
 
             db.commit()
         except Exception as e:
@@ -306,8 +383,7 @@ class HomeAssistantService:
             power_usage_data = await self.fetch_daily_power_usage()
 
             if power_usage_data:
-                start_value, end_value, daily_usage = power_usage_data
-                self.save_daily_power_usage(start_value, end_value, daily_usage)
+                self.save_daily_power_usage(power_usage_data)
                 logger.info("Successfully collected and saved daily power usage")
             else:
                 logger.warning("No daily power usage data received")
