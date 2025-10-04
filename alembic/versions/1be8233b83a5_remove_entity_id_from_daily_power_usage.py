@@ -29,6 +29,9 @@ def upgrade() -> None:
 
         if 'entity_id' in columns:
             # SQLite doesn't support DROP COLUMN directly, need to recreate table
+            # Drop temp table if it exists from previous failed migration
+            op.execute("DROP TABLE IF EXISTS daily_power_usage_new")
+
             op.execute("""
                 CREATE TABLE daily_power_usage_new (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
