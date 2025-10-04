@@ -422,13 +422,14 @@ class HomeAssistantService:
         return None
 
     def get_latest_daily_power_usage(self, db: Session) -> Optional[Dict[str, Any]]:
-        """Get the latest daily power usage"""
-        latest_power_usage = db.query(DailyPowerUsage).order_by(
-            DailyPowerUsage.date.desc()
+        """Get today's daily power usage"""
+        today = date.today()
+        today_power_usage = db.query(DailyPowerUsage).filter(
+            DailyPowerUsage.date == today
         ).first()
 
-        if latest_power_usage:
-            return latest_power_usage.to_dict()
+        if today_power_usage:
+            return today_power_usage.to_dict()
         return None
 
     def get_daily_thermostat_stats(self, db: Session) -> Optional[Dict[str, Any]]:
