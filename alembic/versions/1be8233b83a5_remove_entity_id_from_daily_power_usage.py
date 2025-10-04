@@ -49,14 +49,22 @@ def upgrade() -> None:
             """)
 
             # Copy data from old table to new (excluding entity_id)
+            # Handle both old schema (start_value, end_value) and new schema columns
             op.execute("""
                 INSERT INTO daily_power_usage_new
                 (id, date, import_start_value, import_end_value, daily_import,
                  export_start_value, export_end_value, daily_export,
                  inverter_daily_yield, daily_usage, timestamp)
-                SELECT id, date, import_start_value, import_end_value, daily_import,
-                       export_start_value, export_end_value, daily_export,
-                       inverter_daily_yield, daily_usage, timestamp
+                SELECT id, date,
+                       COALESCE(import_start_value, start_value, 0.0),
+                       COALESCE(import_end_value, end_value, 0.0),
+                       COALESCE(daily_import, daily_usage, 0.0),
+                       COALESCE(export_start_value, 0.0),
+                       COALESCE(export_end_value, 0.0),
+                       COALESCE(daily_export, 0.0),
+                       COALESCE(inverter_daily_yield, 0.0),
+                       COALESCE(daily_usage, 0.0),
+                       timestamp
                 FROM daily_power_usage
             """)
 
